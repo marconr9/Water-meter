@@ -1,0 +1,170 @@
+substitutions:
+  time_timezone: "Europe/Amsterdam"
+  vdate: "v22.01.5b"
+  device_description: s0 kwh meter en watermeter (s0tool) gemaakt door huizebruin.nl versie ${vdate}.
+  impulslengte: "50ms" #30ms of 50ms zie datasheet van het type meter
+  name: S0tool
+
+esphome:
+  name: pulsmeters-190
+  platform: ESP8266
+  board: d1_mini
+  comment: '${device_description}'
+  project:
+    name: huizebruin.${name}
+    version: "${vdate}"
+
+wifi:
+  ssid: XXXXXX
+  password: XXXXX
+  manual_ip:
+    # Set this to the IP of the ESP
+    static_ip: XXXXX
+    # Set this to the IP address of the router. Often ends with .1
+    gateway: XXXXXX 
+    # The subnet of the network. 255.255.255.0 works for most home networks.
+    subnet: 255.255.255.0  
+#------------------------##------------------------##------------------------##------------------------#
+# ⬇ Hieronder niets veranderen tenzij je het overal goed aanpast ⬇ #
+# ⬇ Schakel fallback-hotspot (captive portal) in voor het geval de wifi-verbinding mislukt ⬇ #
+  ap:
+    ssid: "${name}"
+    password: "xxxxxxx"
+
+web_server:
+  port: 80
+  
+captive_portal:
+# ⬇ Enable logging ⬇ # 
+logger:
+  level: INFO
+  
+#  # ⬇ Enable Home Assistant API ⬇ # 
+api:
+  services:
+    - service: set_water_usage
+      variables:
+        meter_value: float
+      then:
+        - globals.set:
+            id: totalWaterUsage
+            value: !lambda "return ( meter_value ) ;"
+
+globals:
+  - id: totalWaterUsage
+    type: float
+# ⬇ Bij het updaten onder de waarde, verander dit in no voor 1 run  ⬇ # 
+    restore_value: yes      
+# ⬇ Bij het flashen,pas dit aan! ⬇ #        
+    initial_value: '207' 
+    
+ota:
+  safe_mode: true
+  reboot_timeout: 10min
+  num_attempts: 5
+#  ⬇ Enable time component voor reset elke nacht ⬇ #
+time:
+  - platform: homeassistant
+    id: time_homeassistant
+    timezone: "${time_timezone}"
+    on_time_sync:
+      - component.update: s0tool_uptime_timestamp
+
+  - platform: sntp
+    id: time_sntp
+    timezone: "${time_timezone}"
+
+
+
+sensor:
+
+  - platform: wifi_signal
+    name: "WiFi Signal Sensor"
+    update_interval: 60s 
+
+
+
+
+#------------------------# Watermeter #------------------------#
+# ⬇ watermeter ⬇ #
+  - platform: pulse_counter
+    pin: D2
+    id: watermeter_pulse
+    name: "watermeter pulse"
+    state_class: measurement
+    update_interval: 1s
+    unit_of_measurement: "L/min"
+    accuracy_decimals: 1
+    filters:
+      lambda: return x * ((60.0 / 1000.0) * 1000.0);
+      # 60 min in 1 hr (update interval is by default 1 min), 1000 pulses/m³ and 1000 L in 1 m³.     
+
+# ⬇ Totaal watermeter ⬇ #      
+    total:
+      id: sensor_pulse_meter_total
+      name: "watermeter Totaal"
+      icon: "mdi:cube-outline"
+      state_class: "total_increasing"
+      unit_of_measurement: "m3" #"m³"
+      accuracy_decimals: 3
+      filters:
+      - multiply: 0.001
+      
+# ⬇ Watermeter stand bij benadering ⬇ #
+  - platform: template
+    id: watermeter_total
+    name: "watermeter stand"
+    state_class: "total_increasing"
+    icon: mdi:water
+    update_interval: 1s
+    unit_of_measurement: m³
+    accuracy_decimals: 3
+    lambda: |-
+      if (id(watermeter_pulse).state >= 1) {
+        id(totalWaterUsage) += 0.001;
+      }
+      return id(totalWaterUsage);
+#------------------------#  sensoren #------------------------#
+
+  - platform: uptime
+    id: s0tool_uptime
+    
+  - platform: template
+    id: s0tool_uptime_timestamp
+    name: "Online"
+    device_class: "timestamp"
+    accuracy_decimals: 0
+    update_interval: never
+    lambda: |-
+      static float timestamp = (
+        id(time_homeassistant).utcnow().timestamp - id(s0tool_uptime).state
+      );
+      return timestamp;  
+      
+# ⬇ versie verbinding informatie sensoren voor in ha ⬇ #
+text_sensor:
+  - platform: template
+    name: "s0tool_versie"
+    id: s0tool_versie
+    icon: "mdi:label-outline"
+    update_interval: 6h
+    lambda: |-
+      return {"${vdate}"};
+
+  - platform: wifi_info
+    ip_address:
+      name: IP-adres
+      id: s0tool_ip_adres
+      icon: mdi:ip-network
+    ssid:
+      name: Netwerk
+      id: s0tool_netwerk
+      icon: mdi:access-point-network
+    mac_address:
+      name: Mac-adres
+      id: s0tool_mac_adres
+      icon: mdi:folder-key-network-outline
+
+
+
+
