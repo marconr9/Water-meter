@@ -2,5 +2,7 @@
 Water meter in Home Assistant
 3d print file for ELstar V200
 
-added yaml file for ESPhome
+added yaml file for ESPhome 
+thanks Huizedebruin for de code.
+
 
